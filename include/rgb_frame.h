@@ -17,7 +17,7 @@ struct RGBFrame{
     int buffer_size;
 };
 
-bool init_rgbframe2(RGBFrame *rgb, int src_w, int src_h, AVPixelFormat src_pix_format);
-void free_rgbframe(RGBFrame);
+bool rgbframe_init(RGBFrame *rgb, int src_w, int src_h, AVPixelFormat src_pix_format);
+void rgbframe_quit(RGBFrame *rgb_frame);
 bool ppm_write_rgb24_to_file(RGBFrame *rgb, const char *filename);
 bool convert_yuv420p_to_rgb24(RGBFrame *rgb, AVFrame *yuv_frame);

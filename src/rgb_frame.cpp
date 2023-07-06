@@ -1,4 +1,3 @@
-#include <libavutil/pixfmt.h>
 #include <string.h>
 #include <cassert>
 #include <stdio.h>
@@ -8,12 +7,13 @@
 #define RGB_HEIGHT 600
 
 extern "C"{
-    #include <libswscale/swscale.h>
+#include <libswscale/swscale.h>
+#include <libavutil/pixfmt.h>
 }
 
 static SwsContext *yuv420p_to_rgb24;
 
-bool init_rgbframe2(RGBFrame *rgb, int src_w, int src_h, AVPixelFormat src_pix_format){
+bool rgbframe_init(RGBFrame *rgb, int src_w, int src_h, AVPixelFormat src_pix_format){
     memset(rgb->data, 0, sizeof(uint8_t *) * 4);
     memset(rgb->linesizes, 0, sizeof(int) * 4);
     rgb->width = RGB_WIDTH;
@@ -70,11 +70,11 @@ bool ppm_write_rgb24_to_file(RGBFrame *rgb, const char *filename){
     return true;
 };
 
-void free_rgbframe(RGBFrame *frame){
-    if(frame != NULL){
-        av_freep(frame->data[0]);
+void rgbframe_quit(RGBFrame *rgb_frame){
+    if(rgb_frame != NULL){
+        av_free(rgb_frame->data[0]);
     }
-}
+};
 
 bool convert_yuv420p_to_rgb24(RGBFrame *rgb, AVFrame *yuv_frame){
     int ret;
