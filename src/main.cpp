@@ -44,13 +44,7 @@ extern "C"{
 #include <libswscale/swscale.h>
 }
 #include <iostream>
-
-//CONVERTION TO RGB
-#define DEST_WIDTH 600
-#define DEST_HEIGHT 400
-#define DEST_BUFFER_SIZE DEST_WIDTH * DEST_HEIGHT * 3 // RGB24 requires 3 bytes per pixel, RGBA requires 4 bytes per pixel
-uint8_t *rgb_buffer;
-AVFrame *rgb_frame;
+#include "rgb_frame.h"
 
 static AVFormatContext *fmt_ctx = NULL;
 static AVCodecContext *video_dec_ctx = NULL;
@@ -58,7 +52,6 @@ static int width, height;
 static enum AVPixelFormat pix_fmt;
 static AVStream *video_stream = NULL;
 static const char *src_filename = NULL;
-static const char *video_dst_filename = NULL;
 static FILE *video_dst_file = NULL;
 
 static uint8_t *video_dst_data[4] = {NULL};
@@ -68,47 +61,11 @@ static int video_dst_bufsize;
 static int video_stream_idx = -1;
 static AVFrame *frame = NULL;
 static AVPacket *pkt = NULL;
-static int video_frame_count = 0;
-static SwsContext *sws_context;
-
-
-
 
 static int frame_count = 0;
-void convert_yuv420p_to_rgb24(const AVFrame *frame);
-void save_current_rgbframe_to_ppm();
 
-static int output_video_frame(AVFrame *frame){
-    if (frame->width != width || frame->height != height ||
-        frame->format != pix_fmt) {
-        /* To handle this change, one could call av_image_alloc again and
-         * decode the following frames into another rawvideo file. */
-        fprintf(stderr, "Error: Width, height and pixel format have to be "
-                "constant in a rawvideo file, but the width, height or "
-                "pixel format of the input video changed:\n"
-                "old: width = %d, height = %d, format = %s\n"
-                "new: width = %d, height = %d, format = %s\n",
-                width, height, av_get_pix_fmt_name(pix_fmt),
-                frame->width, frame->height,
-                av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format)));
-        return -1;
-    }
+RGBFrame rgb_frame;
 
-    printf("video_frame n:%d\n",
-           video_frame_count++);
-
-    const char * format_name = av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format));
-    std::cout << "Format name : " << format_name << "\n";
-    /* copy decoded frame to destination buffer:
-     * this is required since rawvideo expects non aligned data */
-    av_image_copy(video_dst_data, video_dst_linesize,
-                  (const uint8_t **)(frame->data), frame->linesize,
-                  pix_fmt, width, height);
-
-    /* write to rawvideo file */
-    fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
-    return 0;
-}
 
 static int decode_packet(AVCodecContext *dec, const AVPacket *pkt){
     int ret = 0;
@@ -135,9 +92,19 @@ static int decode_packet(AVCodecContext *dec, const AVPacket *pkt){
 
         // write the frame data to output file
         if (dec->codec->type == AVMEDIA_TYPE_VIDEO){
-            ret = output_video_frame(frame);
-            convert_yuv420p_to_rgb24(frame);
-            save_current_rgbframe_to_ppm();
+            if(frame_count >= 5) exit(1);
+
+            if(!convert_yuv420p_to_rgb24(&rgb_frame, frame)){
+                exit(1);
+            }
+
+            char filename[128];
+            snprintf(filename, 128, "./frames/frame-%d", frame_count);
+
+            if(!ppm_write_rgb24_to_file(&rgb_frame, filename)){
+                exit(1);
+            }
+            frame_count++;
         }
 
 
@@ -149,41 +116,8 @@ static int decode_packet(AVCodecContext *dec, const AVPacket *pkt){
     return 0;
 }
 
-void save_current_rgbframe_to_ppm(){
-    char filename[128];
-    snprintf(filename, 128, "./frames/frame-%d", frame_count);
-    FILE *f = fopen(filename, "w");
-    assert(f != NULL);
-
-    uint8_t r, g, b;
-    size_t pitch = rgb_frame->linesize[0];
-
-    fprintf(f,"P3\n%d %d\n255\n", DEST_WIDTH, DEST_HEIGHT);
-    for(int y = 0; y < DEST_HEIGHT; y++){
-        for(int x = 0; x < DEST_WIDTH; x++){
-            uint8_t * p = &rgb_buffer[y * pitch + x];
-
-            r = *p;
-            g = *(p + 1);
-            b = *(p + 2);
-            fprintf(f, "%d %d %d\n", r, g, b);
-        }
-    }
-    frame_count++;
-};
-
-void convert_yuv420p_to_rgb24(const AVFrame *frame){
-    int ret;
-    ret = sws_scale(sws_context, frame->data, frame->linesize, 0, frame->height, rgb_frame->data, rgb_frame->linesize);
-    if(ret < 0){
-        std::cerr << "yuv420p to rgb conversion failed\n";
-        exit(1);
-    }
-};
-
 static int open_codec_context(int *stream_idx,
-                              AVCodecContext **dec_ctx, AVFormatContext *fmt_ctx, enum AVMediaType type)
-{
+                              AVCodecContext **dec_ctx, AVFormatContext *fmt_ctx, enum AVMediaType type){
     int ret, stream_index;
     AVStream *st;
     const AVCodec *dec = NULL;
@@ -232,54 +166,10 @@ static int open_codec_context(int *stream_idx,
     return 0;
 }
 
-bool init_rgb_frame(){
-    int ret;
-    rgb_frame = av_frame_alloc();
-
-    if(!rgb_frame){
-        std::cerr << "Error: Failed to create rgb frame";
-    }
-
-    // It is required that this fields are initialized before
-    // a call to av_frame_get_buffer;
-    rgb_frame->width = DEST_WIDTH;
-    rgb_frame->height = DEST_HEIGHT;
-    rgb_frame->format = AV_PIX_FMT_RGB24;
-
-    if(av_frame_get_buffer(rgb_frame, 0) < 0 ){
-        std::cerr << "Error: failed to get buffer for rgb frame\n";
-        return false;
-    }
-    int rgb_bufsize = av_image_get_buffer_size(AV_PIX_FMT_RGB24, DEST_WIDTH, DEST_HEIGHT, 1);
-    if(rgb_bufsize < 0){
-        std::cerr << "Error: failed to caculate rgb buffer size\n";
-        return false;
-    }
-
-    rgb_buffer = static_cast<uint8_t *>(av_malloc(sizeof(uint8_t) * rgb_bufsize));
-    if(!rgb_buffer){
-        std::cerr << "Error: Failed to allocate memory for rgb buffer\n";
-        return false;
-    }
-
-    ret = av_image_fill_arrays(rgb_frame->data, rgb_frame->linesize, rgb_buffer, AV_PIX_FMT_RGB24, DEST_WIDTH, DEST_HEIGHT, 1);
-    if(ret < 0){
-        std::cerr << "Error: Failed to fill rgb image buffers\n";
-        return false;
-    }
-
-    return true;
-};
-
 int main (int argc, char **argv){
-    //buffer[(y * w + x) * 3]
     int ret = 0;
 
-    if(!init_rgb_frame()){
-        exit(1);
-    }
-
-    if (argc != 3) {
+    if (argc != 2) {
         fprintf(stderr, "usage: %s  input_file video_output_file audio_output_file\n"
                 "API example program to show how to read frames from an input file.\n"
                 "This program reads frames from a file, decodes them, and writes decoded\n"
@@ -289,7 +179,6 @@ int main (int argc, char **argv){
     }
 
     src_filename = argv[1];
-    video_dst_filename = argv[2];
 
     /* open input file, and allocate format context */
     if (avformat_open_input(&fmt_ctx, src_filename, NULL, NULL) < 0) {
@@ -307,13 +196,6 @@ int main (int argc, char **argv){
     if (open_codec_context(&video_stream_idx, &video_dec_ctx, fmt_ctx, AVMEDIA_TYPE_VIDEO) >= 0) {
         video_stream = fmt_ctx->streams[video_stream_idx];
 
-        video_dst_file = fopen(video_dst_filename, "wb");
-        if (!video_dst_file) {
-            fprintf(stderr, "Could not open destination file %s\n", video_dst_filename);
-            ret = 1;
-            goto end;
-        }
-
         /* allocate image where the decoded image will be put */
         width = video_dec_ctx->width;
         height = video_dec_ctx->height;
@@ -327,9 +209,10 @@ int main (int argc, char **argv){
         video_dst_bufsize = ret;
     }
 
-    sws_context = sws_getContext(width, height, AV_PIX_FMT_YUV420P, DEST_WIDTH, DEST_HEIGHT, AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
-    if(!sws_context){
-        std::cerr << "Error: Failed to create sws context\n";
+    //TODO: change this to a different flow, widht,height and pix_fmt can be 
+    //easilly mistaken to be members for rgb whilist in reality they are hints
+    //for sws_scale, this should be done differently.
+    if(!init_rgbframe2(&rgb_frame, width, height, pix_fmt)){
         exit(1);
     }
 
@@ -357,7 +240,7 @@ int main (int argc, char **argv){
     }
 
     if (video_stream)
-        printf("Demuxing video from file '%s' into '%s'\n", src_filename, video_dst_filename);
+        printf("Demuxing video from file '%s' into Individual ppm frames at ./frames \n", src_filename);
     /* read frames from the file */
     while (av_read_frame(fmt_ctx, pkt) >= 0) {
         // check if the packet belongs to a stream we are interested in, otherwise
@@ -376,11 +259,8 @@ int main (int argc, char **argv){
 
     printf("Demuxing succeeded.\n");
 
-    if (video_stream) {
-        printf("Play the output video file with the command:\n"
-               "ffplay -f rawvideo -pix_fmt %s -video_size %dx%d %s\n",
-               av_get_pix_fmt_name(pix_fmt), width, height,
-               video_dst_filename);
+    if(video_stream){
+        printf("Check the video frames at ./frames\n");
     }
 
 end:
