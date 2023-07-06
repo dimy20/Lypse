@@ -3,3 +3,5 @@ main
 assets
 JOB_DESCRIPTION
 compile_commands.json
+frames
+.cache

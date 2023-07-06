@@ -5,8 +5,8 @@ SRC_DIR = src
 BUILD_DIR = build
 INCLUDE_DIR = include
 
-CFLAGS = -Werror -Wall -std=c++20 -g -I$(INCLUDE_DIR)
-LIBS =
+CFLAGS = -Werror -Wall -std=c++20 -g -I$(INCLUDE_DIR) `pkg-config --cflags libavcodec libavutil`
+LIBS = `pkg-config --libs libavcodec libavutil libavformat libswscale`
 
 SRCS = $(shell find $(SRC_DIR) -name '*.cpp')
 OBJS = $(patsubst $(SRC_DIR)/%.cpp, $(BUILD_DIR)/%.o, $(SRCS))
