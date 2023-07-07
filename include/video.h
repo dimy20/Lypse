@@ -11,27 +11,19 @@ extern "C"{
 #include <libswscale/swscale.h>
 }
 
-#include <string>
-#include "rgb_frame.h"
+struct VideoDecoderState{
+    AVFormatContext *av_format_ctx;
+    AVCodecContext *av_decoder_ctx;
 
-struct VideoDecodingState{
-    AVFormatContext *format_ctx;
-    AVCodecContext *decoder_ctx = NULL;
-
-    int width;
-    int height;
-    enum AVPixelFormat pix_fmt;
-
-    FILE *file;
-    AVStream *stream;
-    int stream_index;
-
-    std::string filename;
     AVPacket *packet;
-    AVFrame *frame; // This will store the result output of decoding a packet
+    AVFrame *frame;
+    int video_stream_index;
+
+    SwsContext *sws_scaler_ctx;
+
 };
 
-bool video_decoding_state_init(VideoDecodingState *state, const char *filename);
-void video_decoding_state_quit(VideoDecodingState *state);
-int video_decode_packet(VideoDecodingState *state, const AVPacket *packet, RGBFrame *rgb_frame);
-bool video_decoding_flush(VideoDecodingState *state);
+int video_decoder_init(VideoDecoderState *video_state, const char *filename);
+int decode_packet(VideoDecoderState *video_state);
+void video_decoder_state_quit(VideoDecoderState *state);
+bool video_decoder_flush_codec(VideoDecoderState *state);

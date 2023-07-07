@@ -40,55 +40,36 @@ extern "C"{
 #include <libavutil/pixfmt.h>
 #include <libswscale/swscale.h>
 }
+
 #include <iostream>
-#include "rgb_frame.h"
 #include "video.h"
 
-RGBFrame rgb_frame;
+#define MAX_FRAMES_NUM 1
+const char *filename = "./assets/dummy.mp4";
+int frame_num = 0;
 
 int main (int argc, char **argv){
-    VideoDecodingState decoding_state;
+    VideoDecoderState video_decoder;
 
-    int ret = 0;
-
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s  input_file video_output_file audio_output_file\n"
-                "API example program to show how to read frames from an input file.\n"
-                "This program reads frames from a file, decodes them, and writes decoded\n"
-                "video frames to a rawvideo file named video_output_file, and decoded\n",
-                argv[0]);
-        exit(1);
+    if(video_decoder_init(&video_decoder, filename) < 0){
+        return -1;
     }
 
-    const char *src_filename = argv[1];
-
-    if(!video_decoding_state_init(&decoding_state, src_filename)){
-        exit(1);
-    }
-
-    //TODO: change this to a different flow, widht,height and pix_fmt can be 
-    //easilly mistaken to be members for rgb whilist in reality they are hints
-    //for sws_scale, this should be done differently.
-    if(!rgbframe_init(&rgb_frame, decoding_state.width, decoding_state.height, decoding_state.pix_fmt)){
-        exit(1);
-    }
-
-    /* read frames from the file */
-    while (av_read_frame(decoding_state.format_ctx, decoding_state.packet) >= 0) {
-        // check if the packet belongs to a stream we are interested in, otherwise
-        if(decoding_state.packet->stream_index == decoding_state.stream_index){
-            //TODO:do not pass packet as arg since is already contained in the state
-            ret = video_decode_packet(&decoding_state, decoding_state.packet, &rgb_frame);
+    int ret;
+    while(av_read_frame(video_decoder.av_format_ctx, video_decoder.packet) >= 0){
+        if(video_decoder.packet->stream_index == video_decoder.video_stream_index){
+            ret = decode_packet(&video_decoder);
+            if(ret < 0){
+                break;
+            }
+            if(++frame_num >= MAX_FRAMES_NUM){
+                break;
+            }
         }
-
-        if(ret < 0){
-            break;
-        }
-        av_packet_unref(decoding_state.packet);
+        av_packet_unref(video_decoder.packet);
     }
 
-    assert(video_decoding_flush(&decoding_state) >= 0);
-    video_decoding_state_quit(&decoding_state);
-    rgbframe_quit(&rgb_frame);
-    return ret < 0;
+    video_decoder_flush_codec(&video_decoder);
+    video_decoder_state_quit(&video_decoder);
+    return 0;
 }
