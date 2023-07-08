@@ -43,25 +43,44 @@ extern "C"{
 
 #include <iostream>
 #include "video.h"
+#include "frame.h"
 
-#define MAX_FRAMES_NUM 1
+#define MAX_FRAMES_NUM 5
 const char *filename = "./assets/dummy.mp4";
 int frame_num = 0;
 
 int main (int argc, char **argv){
     VideoDecoderState video_decoder;
 
-    if(video_decoder_init(&video_decoder, filename) < 0){
-        return -1;
+    if(!video_decoder_init(&video_decoder, filename)){
+        video_decoder_state_quit(&video_decoder);
+        return 1;
     }
 
     int ret;
+    RgbFrame frame;
+    rgb_frame_init(&frame,
+                   video_decoder.av_decoder_ctx->width, 
+                   video_decoder.av_decoder_ctx->height);
+
+    char frame_filename[128];
     while(av_read_frame(video_decoder.av_format_ctx, video_decoder.packet) >= 0){
         if(video_decoder.packet->stream_index == video_decoder.video_stream_index){
-            ret = decode_packet(&video_decoder);
+            ret = decode_packet(&video_decoder, &frame);
             if(ret < 0){
                 break;
             }
+
+
+            memset(frame_filename, 0, 128);
+            snprintf(frame_filename, 128, "./frames/frame-%d", frame_num);
+            bool ok;
+            ok = rgb_frame_save_to_ppm(&frame, frame_filename);
+
+            if(!ok){
+                return -1;
+            }
+
             if(++frame_num >= MAX_FRAMES_NUM){
                 break;
             }
@@ -71,5 +90,6 @@ int main (int argc, char **argv){
 
     video_decoder_flush_codec(&video_decoder);
     video_decoder_state_quit(&video_decoder);
+    rgb_frame_quit(&frame);
     return 0;
 }

@@ -1,50 +1,9 @@
 
-#include "video.h"
-
 #include <cassert>
-extern int frame_num;
+#include "video.h"
+#include "error.h"
 
-struct Rgb{
-    uint8_t *frame_buffer;
-    AVFrame *av_frame;
-};
-Rgb rgb;
-
-void init_rgb_frame(Rgb *rgb, int width, int height){
-    assert(rgb != NULL);
-
-    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24,
-                                             width,
-                                             height,
-                                             1);
-
-    rgb->frame_buffer = (uint8_t *)av_malloc(num_bytes * sizeof(uint8_t));
-    rgb->av_frame = av_frame_alloc();
-    assert(rgb->av_frame != NULL);
-    int ret;
-    ret = av_image_fill_arrays(rgb->av_frame->data,
-                         rgb->av_frame->linesize,
-                         rgb->frame_buffer,
-                         AV_PIX_FMT_RGB24,
-                         width,
-                         height,
-                         1);
-    assert(ret >= 0);
-
-    rgb->av_frame->width = width;
-    rgb->av_frame->height = height;
-
-};
-
-void quit_rgb_frame(Rgb *rgb){
-    assert(rgb != NULL);
-    if(rgb->frame_buffer){
-        av_free(rgb->frame_buffer);
-    }
-    av_frame_free(&rgb->av_frame);
-};
-
-int video_decoder_init(VideoDecoderState *state, const char *filename){
+bool video_decoder_init(VideoDecoderState *state, const char *filename){
     assert(state != NULL);
     state->av_format_ctx = NULL;
     state->av_decoder_ctx = NULL;
@@ -53,6 +12,7 @@ int video_decoder_init(VideoDecoderState *state, const char *filename){
     state->video_stream_index = -1;
     state->sws_scaler_ctx = NULL;
 
+
     AVCodecParameters *video_codec_params;
     const AVCodec *av_decoder;
 
@@ -60,17 +20,15 @@ int video_decoder_init(VideoDecoderState *state, const char *filename){
     int ret;
 
     state->av_format_ctx = avformat_alloc_context();
-    if(!state->av_format_ctx){
-        return -1;
-    };
+    FMT_LOG_ERROR_RET(!state->av_format_ctx, "failed to allocate format context for %s\n", filename);
 
     ret = avformat_open_input(&state->av_format_ctx, filename, NULL, NULL);
-    assert(ret >= 0);
+    FMT_LOG_ERROR_RET(ret < 0, "failed to open %s\n", filename);
 
     printf("Format %s, duration %ld us\n", state->av_format_ctx->iformat->long_name, state->av_format_ctx->duration);
 
     ret = avformat_find_stream_info(state->av_format_ctx, NULL);
-    assert(ret >= 0);
+    FMT_LOG_ERROR_RET(ret < 0, "Could not find stream info on %s\n", filename);
 
     //find video stream
     for(int i = 0; i < state->av_format_ctx->nb_streams; i++){
@@ -81,79 +39,42 @@ int video_decoder_init(VideoDecoderState *state, const char *filename){
         }
     }
 
-    if(video_stream_index == -1){
-        fprintf(stderr, "Error: Failed to find video stream in %s\n", filename);
-        return -1;
-    }
-
-
+    FMT_LOG_ERROR_RET(video_stream_index == -1, "Could not find video stream on %s\n", filename);
     av_decoder = avcodec_find_decoder(video_codec_params->codec_id);
-    assert(av_decoder != NULL);
+    FMT_LOG_ERROR_RET(!av_decoder, "could not find video decoder for %s\n.", filename);
 
     state->av_decoder_ctx = avcodec_alloc_context3(av_decoder);
-    assert(state->av_decoder_ctx != NULL);
-    assert(avcodec_parameters_to_context(state->av_decoder_ctx, video_codec_params) >= 0);
-    assert(avcodec_open2(state->av_decoder_ctx, av_decoder, NULL) >= 0);
+    FMT_LOG_ERROR_RET(!state->av_decoder_ctx, "Could not allocate video decoder context for %s\n.", filename);
+
+    ret = avcodec_parameters_to_context(state->av_decoder_ctx, video_codec_params);
+    FMT_LOG_ERROR_RET(ret < 0, "Failed to initialize video decoder context for %s\n", filename);
+    ret = avcodec_open2(state->av_decoder_ctx, av_decoder, NULL);
+    FMT_LOG_ERROR_RET(ret < 0, "Failed to initialize video decoder context for %s\n", filename);
 
     state->packet = av_packet_alloc();
     state->frame = av_frame_alloc();
-    assert(state->packet != NULL);
-    assert(state->frame  != NULL);
+    FMT_LOG_ERROR_RET(!state->packet, "Failed to create video decoding packet for %s\n", filename);
+    FMT_LOG_ERROR_RET(!state->frame, "Failed to create video decoding frame for %s\n", filename);
 
     state->av_decoder_ctx = state->av_decoder_ctx;
     state->av_format_ctx = state->av_format_ctx;
     state->video_stream_index = video_stream_index;
 
-    init_rgb_frame(&rgb, state->av_decoder_ctx->width, state->av_decoder_ctx->height);
-
-    printf("Initialization completed!\n");
-        
-    return 0;
+    return true;
 };
 
-bool save_rgb_image_to_ppm(uint8_t *pixels, int pitch, int w, int h, const char *filename){
-    FILE *f = fopen(filename, "wb");
-    if(!f){
-        fprintf(stderr, "Error: failed to open %s\n", filename);
-        return false;
-    }
-    fprintf(f, "P6\n%d %d\n255\n", w, h);
-
-    size_t offset = 0;
-    for(int y = 0; y < h; y++){
-        fwrite(pixels + offset, 1, w * 3, f);
-        offset = pitch * y;
-
-        if(ferror(f)){
-            fprintf(stderr, "Error: failed to write to %s\n", filename);
-            return false;
-        }
-    }
-
-    fclose(f);
-    return true;
-}
-
-int decode_packet(VideoDecoderState *state){
+bool decode_packet(VideoDecoderState *state, RgbFrame *rgb_frame){
     int ret;
     ret = avcodec_send_packet(state->av_decoder_ctx, state->packet);
-    if(ret < 0){
-        fprintf(stderr, "Error while sending a packet to the decoder: %s", av_err2str(ret));
-        return ret;
-    }
+    LOG_ERROR_RET(ret < 0, "Error while sending a packet to the decoder");
 
-    char frame_filename[128];
     while(ret >= 0){
         ret = avcodec_receive_frame(state->av_decoder_ctx, state->frame);
         if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
         }else if (ret < 0) {
-            fprintf(stderr, "Error while receiving a frame from the decoder: %s", av_err2str(ret));
-            return ret;
+            LOG_ERROR_RET(ret < 0, "Error while receiving a frame from the decoder: %s");
         }
-
-        memset(frame_filename, 0, 128);
-        snprintf(frame_filename, 128, "./frames/frame-%d", frame_num);
 
         if (state->frame->format != AV_PIX_FMT_YUV420P){
             fprintf(stderr, "Warning: the generated file may not be a grayscale image, but could e.g. be just the R component if the video format is RGB");
@@ -174,28 +95,18 @@ int decode_packet(VideoDecoderState *state){
             return -1;
         }
 
+        // convert to rgb24
         ret = sws_scale(state->sws_scaler_ctx, 
                         (const uint8_t * const *)state->frame->data, 
                         state->frame->linesize, 
                         0, 
                         state->frame->height, 
-                        rgb.av_frame->data, 
-                        rgb.av_frame->linesize);
-        assert(ret >= 0);
-
-        bool ok;
-        ok = save_rgb_image_to_ppm(rgb.av_frame->data[0],
-                       rgb.av_frame->linesize[0], 
-                       state->frame->width,
-                       state->frame->height,
-                       frame_filename);
-        if(!ok){
-            return -1;
-        }
+                        rgb_frame->av_frame->data, 
+                        rgb_frame->av_frame->linesize);
+        LOG_ERROR_RET(ret < 0, "Failed to convert frame to rgb24\n");
     }
 
-    return 0;
-
+    return true;
 }
 
 // this should be call only once
@@ -212,5 +123,4 @@ void video_decoder_state_quit(VideoDecoderState *state){
     sws_freeContext(state->sws_scaler_ctx);
     av_packet_free(&state->packet);
     av_frame_free(&state->frame);
-    quit_rgb_frame(&rgb);
 };
