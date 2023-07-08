@@ -29,6 +29,7 @@
  * ffplay.
  */
 
+#include "SDL_events.h"
 #include <cstdio>
 #include <cassert>
 extern "C"{
@@ -44,24 +45,48 @@ extern "C"{
 #include <iostream>
 #include "video.h"
 #include "frame.h"
+#include "display.h"
 
 #define MAX_FRAMES_NUM 5
 const char *filename = "./assets/dummy.mp4";
 int frame_num = 0;
+bool running = true;
 
-int main (int argc, char **argv){
-    VideoDecoderState video_decoder;
+static Display display;
+static VideoDecoderState video_decoder;
+static RgbFrame frame;
+
+bool init_all(){
 
     if(!video_decoder_init(&video_decoder, filename)){
         video_decoder_state_quit(&video_decoder);
-        return 1;
+        return false;
     }
+    if(!rgb_frame_init(&frame,
+                   video_decoder.av_decoder_ctx->width,
+                   video_decoder.av_decoder_ctx->height)) return false;
 
+    if(!display_init(&display,
+                     frame.av_frame->width,
+                     frame.av_frame->height,
+                     "test"))
+        return false;
+    return true;
+};
+
+void do_input(){
+    SDL_Event e;
+    while(SDL_PollEvent(&e) > 0){
+        if(e.type == SDL_QUIT){
+            running = false;
+        }
+    }
+};
+
+int main(int argc, char **argv){
     int ret;
-    RgbFrame frame;
-    rgb_frame_init(&frame,
-                   video_decoder.av_decoder_ctx->width, 
-                   video_decoder.av_decoder_ctx->height);
+    if(!init_all())
+        exit(1);
 
     char frame_filename[128];
     while(av_read_frame(video_decoder.av_format_ctx, video_decoder.packet) >= 0){
@@ -88,8 +113,16 @@ int main (int argc, char **argv){
         av_packet_unref(video_decoder.packet);
     }
 
+    // To test sdl is working, only present the las processed pixel
+    while(running){
+        do_input();
+        display_update_pixels(&display, frame.frame_buffer);
+        display_present_pixels(&display);
+    };
+
     video_decoder_flush_codec(&video_decoder);
     video_decoder_state_quit(&video_decoder);
     rgb_frame_quit(&frame);
+    display_quit(&display);
     return 0;
 }
