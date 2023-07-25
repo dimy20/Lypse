@@ -5,51 +5,52 @@ extern "C"{
 #include "frame.h"
 #include "error.h"
 
-bool rgb_frame_init(RgbFrame *rgb, int width, int height){
-    assert(rgb != NULL);
+RgbFrame::RgbFrame(){
+    frame_buffer = NULL;
+    av_frame = NULL;
+}
 
+bool RgbFrame::init(int width, int height){
     int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24,
                                              width,
                                              height,
                                              1);
     LOG_ERROR_RET(num_bytes < 0, "Error: Failed to get buffer size for frame\n");
 
-    rgb->frame_buffer = (uint8_t *)av_malloc(num_bytes * sizeof(uint8_t));
-    rgb->av_frame = av_frame_alloc();
+    frame_buffer = (uint8_t *)av_malloc(num_bytes * sizeof(uint8_t));
+    av_frame = av_frame_alloc();
 
-    LOG_ERROR_RET(!rgb->frame_buffer, "Error: failed to allocate framebuffer for rgb frame.\n");
-    LOG_ERROR_RET(!rgb->av_frame, "Error: failed to allocate AVFrame for rgb frame.\n");
+    LOG_ERROR_RET(!frame_buffer, "Error: failed to allocate framebuffer for rgb frame.\n");
+    LOG_ERROR_RET(!av_frame, "Error: failed to allocate AVFrame for rgb frame.\n");
 
     int ret;
-    ret = av_image_fill_arrays(rgb->av_frame->data,
-                               rgb->av_frame->linesize,
-                               rgb->frame_buffer,
+    ret = av_image_fill_arrays(av_frame->data,
+                               av_frame->linesize,
+                               frame_buffer,
                                AV_PIX_FMT_RGB24,
                                width,
                                height,
                                1);
     LOG_ERROR_RET(ret < 0, "Error: Failed to initialize av Frame arrays for rgb frame buffer\n");
 
-    rgb->av_frame->width = width;
-    rgb->av_frame->height = height;
-
+    av_frame->width = width;
+    av_frame->height = height;
     return true;
 };
 
-void rgb_frame_quit(RgbFrame* rgb){
-    assert(rgb != NULL);
-    if(rgb->frame_buffer){
-        av_free(rgb->frame_buffer);
+void RgbFrame::quit(){
+    if(frame_buffer){
+        av_free(frame_buffer);
     }
-    av_frame_free(&rgb->av_frame);
+    av_frame_free(&av_frame);
 };
 
-bool rgb_frame_save_to_ppm(const RgbFrame *rgb_frame, const char *filename){
-    uint8_t *pixels = rgb_frame->av_frame->data[0];
-    int pitch = rgb_frame->av_frame->linesize[0];
+bool RgbFrame::save_to_ppm(const char *filename){
+    uint8_t *pixels = av_frame->data[0];
+    int pitch = av_frame->linesize[0];
 
-    int w = rgb_frame->av_frame->width;
-    int h = rgb_frame->av_frame->height;
+    int w = av_frame->width;
+    int h = av_frame->height;
 
 
     FILE *f = fopen(filename, "wb");

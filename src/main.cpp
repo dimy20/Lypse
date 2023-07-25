@@ -54,7 +54,6 @@ bool running = true;
 
 static Display display;
 static VideoDecoder video_decoder;
-//static VideoDecoderState video_decoder;
 static RgbFrame frame;
 
 bool init_all(){
@@ -64,12 +63,11 @@ bool init_all(){
         return false;
     }
 
-    if(!rgb_frame_init(&frame,
-                   video_decoder.width(),
-                   video_decoder.height())) return false;
+    if(!frame.init(video_decoder.width(), video_decoder.height())){
+        return false;
+    }
 
-    if(!display_init(&display,
-                     frame.av_frame->width,
+    if(!display.init(frame.av_frame->width,
                      frame.av_frame->height,
                      "test"))
         return false;
@@ -102,7 +100,7 @@ int main(int argc, char **argv){
             memset(frame_filename, 0, 128);
             snprintf(frame_filename, 128, "./frames/frame-%d", frame_num);
             bool ok;
-            ok = rgb_frame_save_to_ppm(&frame, frame_filename);
+            ok = frame.save_to_ppm(frame_filename);
 
             if(!ok){
                 return -1;
@@ -118,13 +116,13 @@ int main(int argc, char **argv){
     // To test sdl is working, only present the las processed pixel
     while(running){
         do_input();
-        display_update_pixels(&display, frame.frame_buffer);
-        display_present_pixels(&display);
+        display.update_pixels(frame.frame_buffer);
+        display.present_pixels();
     };
 
     video_decoder.flush_codec();
     video_decoder.quit();
-    rgb_frame_quit(&frame);
-    display_quit(&display);
+    frame.quit();
+    display.quit();
     return 0;
 }
