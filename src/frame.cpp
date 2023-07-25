@@ -69,23 +69,3 @@ bool rgb_frame_save_to_ppm(const RgbFrame *rgb_frame, const char *filename){
     fclose(f);
     return true;
 };
-
-/*
-bool save_rgb_image_to_ppm(uint8_t *pixels, int pitch, int w, int h, const char *filename){
-    FILE *f = fopen(filename, "wb");
-    FMT_LOG_ERROR_RET(!f, "Error: failed to open %s\n", filename);
-
-    fprintf(f, "P6\n%d %d\n255\n", w, h);
-
-    size_t offset = 0;
-    for(int y = 0; y < h; y++){
-        fwrite(pixels + offset, 1, w * 3, f);
-        offset = pitch * y;
-
-        FMT_LOG_ERROR_RET(ferror(f), "Error: failed to write to %s\n", filename);
-    }
-
-    fclose(f);
-    return true;
-}
-*/

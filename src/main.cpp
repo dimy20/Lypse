@@ -53,18 +53,20 @@ int frame_num = 0;
 bool running = true;
 
 static Display display;
-static VideoDecoderState video_decoder;
+static VideoDecoder video_decoder;
+//static VideoDecoderState video_decoder;
 static RgbFrame frame;
 
 bool init_all(){
 
-    if(!video_decoder_init(&video_decoder, filename)){
-        video_decoder_state_quit(&video_decoder);
+    if(!video_decoder.init(filename)){
+        video_decoder.quit();
         return false;
     }
+
     if(!rgb_frame_init(&frame,
-                   video_decoder.av_decoder_ctx->width,
-                   video_decoder.av_decoder_ctx->height)) return false;
+                   video_decoder.width(),
+                   video_decoder.height())) return false;
 
     if(!display_init(&display,
                      frame.av_frame->width,
@@ -89,9 +91,9 @@ int main(int argc, char **argv){
         exit(1);
 
     char frame_filename[128];
-    while(av_read_frame(video_decoder.av_format_ctx, video_decoder.packet) >= 0){
-        if(video_decoder.packet->stream_index == video_decoder.video_stream_index){
-            ret = decode_packet(&video_decoder, &frame);
+    while(video_decoder.read_frame() >= 0){
+        if(video_decoder.is_video_stream()){
+            ret = video_decoder.decode_packet(&frame);
             if(ret < 0){
                 break;
             }
@@ -110,7 +112,7 @@ int main(int argc, char **argv){
                 break;
             }
         }
-        av_packet_unref(video_decoder.packet);
+        video_decoder.clear_frame();
     }
 
     // To test sdl is working, only present the las processed pixel
@@ -120,8 +122,8 @@ int main(int argc, char **argv){
         display_present_pixels(&display);
     };
 
-    video_decoder_flush_codec(&video_decoder);
-    video_decoder_state_quit(&video_decoder);
+    video_decoder.flush_codec();
+    video_decoder.quit();
     rgb_frame_quit(&frame);
     display_quit(&display);
     return 0;
