@@ -12,7 +12,6 @@ bool video_decoder_init(VideoDecoderState *state, const char *filename){
     state->video_stream_index = -1;
     state->sws_scaler_ctx = NULL;
 
-
     AVCodecParameters *video_codec_params;
     const AVCodec *av_decoder;
 
@@ -30,7 +29,6 @@ bool video_decoder_init(VideoDecoderState *state, const char *filename){
     ret = avformat_find_stream_info(state->av_format_ctx, NULL);
     FMT_LOG_ERROR_RET(ret < 0, "Could not find stream info on %s\n", filename);
 
-    AVStream *video_stream;
     //find video stream
     for(int i = 0; i < state->av_format_ctx->nb_streams; i++){
         video_codec_params = state->av_format_ctx->streams[i]->codecpar;
@@ -40,10 +38,7 @@ bool video_decoder_init(VideoDecoderState *state, const char *filename){
         }
     }
 
-
     FMT_LOG_ERROR_RET(video_stream_index == -1, "Could not find video stream on %s\n", filename);
-
-    AVRational t = state->av_format_ctx->streams[video_stream_index]->time_base;
     av_decoder = avcodec_find_decoder(video_codec_params->codec_id);
 
     FMT_LOG_ERROR_RET(!av_decoder, "could not find video decoder for %s\n.", filename);
@@ -113,7 +108,6 @@ bool decode_packet(VideoDecoderState *state, RgbFrame *rgb_frame){
 
     return true;
 }
-
 // this should be call only once
 bool video_decoder_flush_codec(VideoDecoderState *state){
     // signal end of stream
