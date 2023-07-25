@@ -47,10 +47,10 @@ extern "C"{
 #include "frame.h"
 #include "display.h"
 
-#define MAX_FRAMES_NUM 5
 const char *filename = "./assets/dummy.mp4";
 int frame_num = 0;
 bool running = true;
+static double time_base;
 
 static Display display;
 static VideoDecoder video_decoder;
@@ -71,6 +71,12 @@ bool init_all(){
                      frame.av_frame->height,
                      "test"))
         return false;
+
+    if(!video_decoder.time_base(&time_base)){
+        fprintf(stderr, "Error: Failed to retrive video stream timebase\n");
+        return false;
+    }
+
     return true;
 };
 
@@ -88,37 +94,32 @@ int main(int argc, char **argv){
     if(!init_all())
         exit(1);
 
-    char frame_filename[128];
-    while(video_decoder.read_frame() >= 0){
-        if(video_decoder.is_video_stream()){
-            ret = video_decoder.decode_packet(&frame);
-            if(ret < 0){
-                break;
-            }
-
-
-            memset(frame_filename, 0, 128);
-            snprintf(frame_filename, 128, "./frames/frame-%d", frame_num);
-            bool ok;
-            ok = frame.save_to_ppm(frame_filename);
-
-            if(!ok){
-                return -1;
-            }
-
-            if(++frame_num >= MAX_FRAMES_NUM){
-                break;
-            }
-        }
-        video_decoder.clear_frame();
-    }
-
-    // To test sdl is working, only present the las processed pixel
     while(running){
         do_input();
-        display.update_pixels(frame.frame_buffer);
-        display.present_pixels();
-    };
+
+        while(video_decoder.read_frame() >= 0){
+            if(video_decoder.is_video_stream()){
+                ret = video_decoder.decode_packet(&frame);
+                if(ret < 0){
+                    break;
+                }
+
+                //Present frame at correct time based on PTS and timebase.
+                double pts_seconds = static_cast<double>(frame.av_frame->pts) * time_base;
+                double curr_time_seconds = static_cast<double>(SDL_GetTicks()) / 1000.0f;
+                if(pts_seconds > curr_time_seconds){
+                    double wait_seconds = pts_seconds - curr_time_seconds;
+                    SDL_Delay(1000 * wait_seconds);
+                }
+
+                display.update_pixels(frame.frame_buffer);
+                display.present_pixels();
+
+            }
+            video_decoder.clear_frame();
+            break;
+        }
+    }
 
     video_decoder.flush_codec();
     video_decoder.quit();

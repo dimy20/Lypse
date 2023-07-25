@@ -99,6 +99,10 @@ bool VideoDecoder::decode_packet(RgbFrame *rgb_frame){
                         m_frame->height, 
                         rgb_frame->av_frame->data, 
                         rgb_frame->av_frame->linesize);
+
+        // we need to carry the presentation timestamp from the origin frame
+        rgb_frame->av_frame->pts = m_frame->pts;
+
         LOG_ERROR_RET(ret < 0, "Failed to convert frame to rgb24\n");
     }
 
@@ -120,3 +124,13 @@ bool VideoDecoder::flush_codec(){
     ret = avcodec_send_packet(m_av_decoder_ctx, NULL);
     return ret >= 0;
 }
+
+bool VideoDecoder::time_base(double *tb){
+    //av_q2d
+    if(m_video_stream_index != -1){
+        AVRational _time_base = m_av_format_ctx->streams[m_video_stream_index]->time_base;
+        *tb = _time_base.num / static_cast<double>(_time_base.den);
+        return true;
+    }
+    return false;
+};
